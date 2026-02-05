@@ -96,3 +96,61 @@ class ChildActivityResponseRawAPI(APIView):
             "responses": responses,
             "inference": inference
         })
+
+class ChildPerformedActivitiesAPI(APIView):
+    def get(self, request):
+        child_id = request.GET.get("child_id")
+
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    a.id AS activity_id,
+                    csa.is_completed,
+                    q.question_id,
+                    q.question_txt,
+                    q.correct_answer,
+                    cdr.given_ans_text,
+                    cdr.analysis,
+                    sn.status_label,
+                    sn.inference_template,
+                    sn.recommendation_template
+                FROM child_dloat_skill_assessment csa
+                JOIN child_dloat_responses cdr
+                    ON cdr.child_assessment_id = csa.si_no
+                JOIN dloat_questions q
+                    ON q.question_id = cdr.question_id
+                JOIN dloat_assessment_activities a
+                    ON a.id = q.class_skill_id
+                LEFT JOIN dloat_scoring_norms sn
+                    ON sn.activity_id = a.id
+                WHERE csa.child_id = %s
+                ORDER BY a.id, q.question_id
+            """, [child_id])
+
+            rows = cursor.fetchall()
+
+        result = {}
+        for r in rows:
+            activity_id = r[0]
+
+            if activity_id not in result:
+                result[activity_id] = {
+                    "activity_id": activity_id,
+                    "completion_status": r[1],
+                    "responses": [],
+                    "inference": {
+                        "status_label": r[7],
+                        "inference_template": r[8],
+                        "recommendation_template": r[9],
+                    }
+                }
+
+            result[activity_id]["responses"].append({
+                "question_id": r[2],
+                "question_text": r[3],
+                "expected_ans": r[4],
+                "given_ans": r[5],
+                "analysis": r[6],
+            })
+
+        return Response(list(result.values()))
